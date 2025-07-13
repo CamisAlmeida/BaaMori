@@ -6,8 +6,8 @@
 #include <WiFi.h>
 
 // Cofiguração wifi
-const char* ssid = "Camis";
-const char* password = "281Camis";
+const char* ssid = "....";
+const char* password = "....";
 
 unsigned long prevTime = 0;
 unsigned long nowTime = 0;
