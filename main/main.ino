@@ -190,16 +190,31 @@ void datacollection(float* accX, float* accY, float* accZ,
 }
 
 // MONTAR CSV DOS DADOS
-void updateCurrentData() {
-  currentData = String(nowTime) + "\t" + String(contadorTestes) + "\t";
-  currentData += String(AccX / 2048.0, 2) + "\t" + String(nowAccX - AccX, 0) + "\t";
-  currentData += String(AccY / 2048.0, 2) + "\t" + String(nowAccY - AccY, 0) + "\t";
-  currentData += String(AccZ / 2048.0, 2) + "\t" + String(nowAccZ - AccZ, 0) + "\t";
-  currentData += String(GyrX / 16.4, 2) + "\t" + String(nowGyrX - GyrX, 0) + "\t";
-  currentData += String(GyrY / 16.4, 2) + "\t" + String(nowGyrY - GyrY, 0) + "\t";
-  currentData += String(GyrZ / 16.4, 2) + "\t" + String(nowGyrZ - GyrZ, 0);
+const int maxLinhas = 50;  
+int linhasColetadas = 0;
 
-  // CSV com vírgulas
+void updateCurrentData() {
+  String novaLinha = String(nowTime) + "\t" + String(contadorTestes) + "\t";
+  novaLinha += String(AccX / 2048.0, 2) + "\t" + String(nowAccX - AccX, 0) + "\t";
+  novaLinha += String(AccY / 2048.0, 2) + "\t" + String(nowAccY - AccY, 0) + "\t";
+  novaLinha += String(AccZ / 2048.0, 2) + "\t" + String(nowAccZ - AccZ, 0) + "\t";
+  novaLinha += String(GyrX / 16.4, 2) + "\t" + String(nowGyrX - GyrX, 0) + "\t";
+  novaLinha += String(GyrY / 16.4, 2) + "\t" + String(nowGyrY - GyrY, 0) + "\t";
+  novaLinha += String(GyrZ / 16.4, 2) + "\t" + String(nowGyrZ - GyrZ, 0) + "\n";
+
+  // Se já atingiu o máximo de linhas, remover a primeira linha
+  if (linhasColetadas >= maxLinhas) {
+    int posNovaLinha = currentData.indexOf('\n');  // acha a primeira quebra de linha
+    if (posNovaLinha >= 0) {
+      currentData = currentData.substring(posNovaLinha + 1);  // remove a primeira linha
+      linhasColetadas--;
+    }
+  }
+
+  currentData += novaLinha;
+  linhasColetadas++;
+
+  // Também atualiza CSV para download
   String csvLine = String(nowTime) + "," + String(contadorTestes) + ",";
   csvLine += String(AccX / 2048.0, 2) + "," + String(nowAccX - AccX, 0) + ",";
   csvLine += String(AccY / 2048.0, 2) + "," + String(nowAccY - AccY, 0) + ",";
@@ -209,6 +224,7 @@ void updateCurrentData() {
   csvLine += String(GyrZ / 16.4, 2) + "," + String(nowGyrZ - GyrZ, 0);
   csvContent += csvLine + "\n";
 }
+
 
 // Printa os dados no monitor serial
 void printDataSerial() {
@@ -267,30 +283,56 @@ void setup() {
   server.on("/", []() {
     String html = "<!DOCTYPE html><html><head><meta charset='UTF-8'><title>Dados MPU6050</title>";
     html += "<style>"
-            "body { font-family: Arial, sans-serif; margin: 0; padding: 0; }"
-            "#dados { padding: 20px; white-space: pre-wrap; }"
-            ".top-right { position: absolute; top: 10px; right: 10px; }"
+            "body { font-family: Arial, sans-serif; margin: 20px; }"
+            "#container { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }"
+            "#isFallBox { border: 2px solid #f00; padding: 10px 20px; font-weight: bold; color: #900; background-color: #fee; border-radius: 6px; }"
+            "#downloadBtn { padding: 10px 20px; font-size: 14px; cursor: pointer; }"
+            "#dataSequence { margin-bottom: 8px; font-style: italic; color: #555; }"
+            "#scroll-data { height: 300px; overflow-y: auto; border: 1px solid #ccc; padding: 10px; white-space: pre; background-color: #fafafa; font-size: 14px; }"
             "</style></head><body>";
 
-    html += "<button class='top-right' onclick=\"window.location='/csv'\">Baixar CSV</button>";
-    html += "<h2 style='padding: 20px;'>Dados MPU6050</h2>";
-    html += "<pre id='dados'>Carregando dados...</pre>";
+    html += "<h2>Dados MPU6050</h2>";
+    html += "<div id='dataSequence'>Sequência dos dados: Time(ms) - Teste - AccX(g) - ΔAccX - AccY(g) - ΔAccY - AccZ(g) - ΔAccZ - GyrX(d/s) - ΔGyrX - GyrY(d/s) - ΔGyrY - GyrZ(d/s) - ΔGyrZ</div>";
+
+    html += "<div id='container'>";
+    html += "<div id='isFallBox'>IsFall: <span id='isFall'>false</span></div>";
+    html += "<button id='downloadBtn' onclick=\"window.location='/csv'\">Baixar CSV</button>";
+    html += "</div>";
+
+    html += "<div id='scroll-data'>Carregando dados...</div>";
 
     html += "<script>"
-            "const dadosEl = document.getElementById('dados');"
-            "function atualiza() {"
-            "fetch('/data').then(resp => resp.text()).then(txt => {"
-            "if (dadosEl.innerText === 'Carregando dados...') dadosEl.innerText = '';"
-            "dadosEl.innerText += txt + '\\n';"
-            "dadosEl.scrollTop = dadosEl.scrollHeight;"
-            "});"
+            "const scrollDataDiv = document.getElementById('scroll-data');"
+            "const isFallSpan = document.getElementById('isFall');"
+
+            "function atualizarDados() {"
+            "  fetch('/data').then(res => res.text()).then(text => {"
+            "    scrollDataDiv.textContent = text;"
+            "  });"
+            "  fetch('/isfall').then(res => res.text()).then(text => {"
+            "    isFallSpan.textContent = text.trim();"
+            "    if(text.trim() === 'true') {"
+            "      isFallSpan.style.color = 'red';"
+            "      isFallSpan.style.fontWeight = 'bold';"
+            "    } else {"
+            "      isFallSpan.style.color = 'green';"
+            "      isFallSpan.style.fontWeight = 'normal';"
+            "    }"
+            "  });"
             "}"
-            "setInterval(atualiza, 500); atualiza();"
+            "setInterval(atualizarDados, 500);"
+            "atualizarDados();"
             "</script>";
+
     html += "</body></html>";
 
     server.send(200, "text/html", html);
   });
+
+  server.on("/isfall", []() {
+    server.send(200, "text/plain", isFall ? "true" : "false");
+  });
+
 
   server.on("/data", []() {
     server.send(200, "text/plain", currentData);
@@ -406,11 +448,11 @@ void loop() {
   if (isFall == true) {
     digitalWrite(alert, HIGH);
     Serial.println("\t🆘QUEDAAAA!!!!🆘");
-  } else{
+  } else {
     Serial.println("\t🆗Sem quedas!");
   }
 
-  if(digitalRead(button) == HIGH && digitalRead(alert) == HIGH){
+  if (digitalRead(button) == HIGH && digitalRead(alert) == HIGH) {
     digitalWrite(alert, LOW);
   }
 
