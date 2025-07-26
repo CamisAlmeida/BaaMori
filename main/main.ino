@@ -6,8 +6,8 @@
 #include <WebServer.h>
 
 // CONFIGURÇÃO DO WIFI
-const char* ssid = "Camis";
-const char* password = "281Camis";
+const char* ssid = "....";
+const char* password = "....";
 
 // DIFINIÇÃO DO BOTÃO PARA COLETA DE DADOS
 #define button 4
