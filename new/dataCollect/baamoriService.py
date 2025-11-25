@@ -1,4 +1,3 @@
-# executar com: /home/mi/.venv/bin/python3 /home/mi/Documents/BAAMORI/baamoriService.py
 #!/home/mi/.venv/bin/python3
 import websocket
 import csv
@@ -6,38 +5,39 @@ import math
 import statistics
 import datetime
 import os
+import time
 
-# CONFIGURAÇÕES 
+# ---------------- CONFIGURAÇÕES ----------------
 WINDOW_SIZE = 50
 SAVE_DIR = "/home/mi/Documents/BAAMORI/"
 WS_URL = "ws://192.168.4.1:81/"
-# 
 
-os.makedirs(SAVE_DIR, exist_ok=True)  # garante que o diretório exista
+os.makedirs(SAVE_DIR, exist_ok=True)
 
-# Pergunta tipo de sessão
+# ----------- Pergunta tipo de sessão -----------
 tipo = ""
 while tipo not in ["q", "n"]:
     tipo = input("Essa sessão é: [q] queda, [n] normal ? ").strip().lower()
 
 label = "queda" if tipo == "q" else "normal"
 
-# Cria nome automaticamente
+# ----------- Nome do arquivo -----------
 timestamp = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
 filename = f"{label}_{timestamp}.csv"
 filepath = os.path.join(SAVE_DIR, filename)
 
-# Conecta WebSocket
+# ----------- WebSocket -----------
 ws = websocket.WebSocket()
+ws.settimeout(1)
 ws.connect(WS_URL)
 
-# Abre arquivo
+# ----------- CSV -----------
 file = open(filepath, "w", newline="")
 writer = csv.writer(file)
 
-# Cabeçalho do CSV
 writer.writerow([
-    "ax","ay","az","gx","gy","gz",
+    "fall_id",
+    "n_samples",
     "min_ax","min_ay","min_az","min_gx","min_gy","min_gz",
     "max_ax","max_ay","max_az","max_gx","max_gy","max_gz",
     "mean_ax","mean_ay","mean_az","mean_gx","mean_gy","mean_gz",
@@ -47,93 +47,120 @@ writer.writerow([
     "classe"
 ])
 
-buffer = []
-print(f"Coletando para dataset: {filepath}\nCtrl+C para parar.")
+print(f"Coletando para dataset: {filepath}")
+print("Aguardando dados... (Ctrl+C para parar)")
 
-t_inicio = datetime.datetime.now()
+# buffer por fall_id
+buffers = {}
 
+# timestamps por fall_id
+t_inicio = {}
+
+total_msgs = 0
+ultimo_fall_id_recebido = -1
+
+
+# ------------------- FUNÇÃO: PROCESSA UMA QUEDA -------------------
+def processar_buffer(fall_id, classe):
+    global buffers, t_inicio
+
+    buf = buffers.get(fall_id, [])
+    if len(buf) == 0:
+        return
+
+    n = len(buf)
+
+    ax = [x[0] for x in buf]
+    ay = [x[1] for x in buf]
+    az = [x[2] for x in buf]
+    gx = [x[3] for x in buf]
+    gy = [x[4] for x in buf]
+    gz = [x[5] for x in buf]
+
+    mag_acc = sum(math.sqrt(a*a + b*b + c*c) for a,b,c,_,_,_ in buf) / n
+    mag_gyro = sum(math.sqrt(gx*gx + gy*gy + gz*gz) for _,_,_,gx,gy,gz in buf) / n
+    t_fim = datetime.datetime.now()
+
+    writer.writerow([
+        fall_id,
+        n,
+        min(ax), min(ay), min(az), min(gx), min(gy), min(gz),
+        max(ax), max(ay), max(az), max(gx), max(gy), max(gz),
+        statistics.mean(ax), statistics.mean(ay), statistics.mean(az),
+        statistics.mean(gx), statistics.mean(gy), statistics.mean(gz),
+        statistics.pstdev(ax), statistics.pstdev(ay), statistics.pstdev(az),
+        statistics.pstdev(gx), statistics.pstdev(gy), statistics.pstdev(gz),
+        mag_acc, mag_gyro,
+        t_inicio[fall_id].isoformat(),
+        t_fim.isoformat(),
+        classe
+    ])
+
+    print(f"✔ Queda {fall_id} salva com {n} amostras")
+
+    # limpa buffer
+    buffers[fall_id] = []
+    t_inicio[fall_id] = t_fim
+
+
+# ------------------- LOOP PRINCIPAL -------------------
 try:
     while True:
+
+        # -------- TENTAR RECEBER DADOS --------
         try:
             msg = ws.recv()
         except websocket.WebSocketTimeoutException:
             continue
-        except websocket.WebSocketConnectionClosedException:
-            print("Conexão perdida, reconectando...")
-            ws = websocket.WebSocket()
-            ws.connect(WS_URL)
-            continue
+        except KeyboardInterrupt:
+            break
+
+        total_msgs += 1
 
         vals = msg.strip().split(",")
 
-        if len(vals) == 6:
-            ax, ay, az, gx, gy, gz = map(float, vals)
-            buffer.append((ax, ay, az, gx, gy, gz))
+        # ESP32 manda 8 valores
+        if len(vals) != 8:
+            continue
 
-            # Se o buffer encheu → processa
-            if len(buffer) == WINDOW_SIZE:
+        ax, ay, az, gx, gy, gz = map(float, vals[:6])
+        classe = int(vals[6])       # 0 normal, 1 queda
+        fall_id = int(vals[7])      # identificador da queda
 
-                ax_list = [b[0] for b in buffer]
-                ay_list = [b[1] for b in buffer]
-                az_list = [b[2] for b in buffer]
-                gx_list = [b[3] for b in buffer]
-                gy_list = [b[4] for b in buffer]
-                gz_list = [b[5] for b in buffer]
+        # cria buffer do id se ainda não existe
+        if fall_id not in buffers:
+            buffers[fall_id] = []
+            t_inicio[fall_id] = datetime.datetime.now()
 
-                # magnitudes médias
-                mag_acc = sum(
-                    math.sqrt(a*a + b*b + c*c) 
-                    for a,b,c,_,_,_ in buffer
-                ) / WINDOW_SIZE
+        # adiciona dado
+        buffers[fall_id].append((ax, ay, az, gx, gy, gz))
 
-                mag_gyro = sum(
-                    math.sqrt(gx*gx + gy*gy + gz*gz) 
-                    for _,_,_,gx,gy,gz in buffer
-                ) / WINDOW_SIZE
+        # --------------------- MODO NORMAL ---------------------
+        if label == "normal":
+            if len(buffers[fall_id]) >= WINDOW_SIZE:
+                processar_buffer(fall_id, classe=0)
 
-                t_fim = datetime.datetime.now()
+        # --------------------- MODO QUEDA ---------------------
+        else:
+            # detecta fim da queda quando fall_id muda
+            if ultimo_fall_id_recebido != -1 and fall_id != ultimo_fall_id_recebido:
+                # processa a queda anterior
+                processar_buffer(ultimo_fall_id_recebido, classe=1)
 
-                # salva cada amostra da janela com estatísticas
-                for i in range(WINDOW_SIZE):
-                    writer.writerow([
-                        buffer[i][0], buffer[i][1], buffer[i][2],
-                        buffer[i][3], buffer[i][4], buffer[i][5],
+        ultimo_fall_id_recebido = fall_id
 
-                        min(ax_list), min(ay_list), min(az_list),
-                        min(gx_list), min(gy_list), min(gz_list),
-
-                        max(ax_list), max(ay_list), max(az_list),
-                        max(gx_list), max(gy_list), max(gz_list),
-
-                        statistics.mean(ax_list),
-                        statistics.mean(ay_list),
-                        statistics.mean(az_list),
-                        statistics.mean(gx_list),
-                        statistics.mean(gy_list),
-                        statistics.mean(gz_list),
-
-                        statistics.pstdev(ax_list),
-                        statistics.pstdev(ay_list),
-                        statistics.pstdev(az_list),
-                        statistics.pstdev(gx_list),
-                        statistics.pstdev(gy_list),
-                        statistics.pstdev(gz_list),
-
-                        mag_acc,
-                        mag_gyro,
-
-                        t_inicio.isoformat(),
-                        t_fim.isoformat(),
-
-                        label
-                    ])
-
-                buffer.clear()
-                t_inicio = t_fim  # próxima janela
 
 except KeyboardInterrupt:
-    print("Coleta finalizada.")
+    print("\nEncerrando...")
+
+# processa última queda pendente
+if label == "queda":
+    for fid in buffers:
+        if len(buffers[fid]) > 0:
+            processar_buffer(fid, classe=1)
 
 file.close()
 ws.close()
-print(f"\nArquivo salvo em:\n  {filepath}")
+
+print(f"\nTotal de mensagens recebidas: {total_msgs}")
+print(f"Arquivo salvo em:\n  {filepath}")

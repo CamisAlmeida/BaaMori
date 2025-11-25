@@ -1,146 +1,107 @@
 #include <Wire.h>
 #include <WiFi.h>
 #include <WebSocketsServer.h>
-#include <TFT_eSPI.h>
 
-// -------- CONFIGURAÇÕES --------
 WebSocketsServer webSocket = WebSocketsServer(81);
-const int MPU_ADDR = 0x68;
-const int INT_PIN = 5;
 
-// Display TFT integrado
-TFT_eSPI tft = TFT_eSPI();
+#define MPU_ADDR 0x69
+#define BTN_PIN 4   // botão usado apenas no modo queda
 
-// Variáveis MPU6050
-volatile bool motionInterrupt = false;
-volatile bool zeroInterrupt = false;
+enum Sessao { 
+  SESSAO_NORMAL, 
+  SESSAO_QUEDA 
+};
+
+// Sessao sessaoAtual = SESSAO_NORMAL;
+Sessao sessaoAtual = SESSAO_QUEDA;
+
+bool quedaGravando = false;
+bool lastBtn = HIGH;
+
+static int fall_id = 0;   // <<< ID DA QUEDA >>>
+
 int16_t ax, ay, az, gx, gy, gz;
 
-// -------- ESTADOS --------
-enum Estado { NORMAL, QUEDA };
-Estado estado = NORMAL;
-
-// -------- INTERRUPÇÃO ----------
-void IRAM_ATTR handleMPUInterrupt() {
-  uint8_t intStatus;
-
-  Wire.beginTransmission(MPU_ADDR);
-  Wire.write(0x3A); // INT_STATUS
-  Wire.endTransmission(false);
-  Wire.requestFrom(MPU_ADDR, 1, true);
-  intStatus = Wire.read();
-
-  if (intStatus & 0x40) motionInterrupt = true; // Motion
-  if (intStatus & 0x20) zeroInterrupt = true;   // Zero motion
-}
-
-// -------- CONFIGURAÇÃO --------
-void setup() {
-  Serial.begin(115200);
-
-  Wire.begin(9, 10);  // SDA=9, SCL=10
-  pinMode(INT_PIN, INPUT_PULLUP);
-  attachInterrupt(digitalPinToInterrupt(INT_PIN), handleMPUInterrupt, FALLING);
-
-  // Inicializa MPU6050
-  Wire.beginTransmission(MPU_ADDR);
-  Wire.write(0x6B); Wire.write(0); // Acorda
-  Wire.endTransmission(true);
-
-  // Configura Motion detection
-  Wire.beginTransmission(MPU_ADDR);
-  Wire.write(0x1F); // MOT_THR
-  Wire.write(15);   // menos sensível
-  Wire.endTransmission(true);
-
-  Wire.beginTransmission(MPU_ADDR);
-  Wire.write(0x20); // MOT_DUR
-  Wire.write(10);
-  Wire.endTransmission(true);
-
-  // Habilita interrupções Motion + Zero Motion
-  Wire.beginTransmission(MPU_ADDR);
-  Wire.write(0x38); // INT_ENABLE
-  Wire.write(0x60);
-  Wire.endTransmission(true);
-
-  // Inicializa TFT
-  tft.init();
-  tft.setRotation(0);
-  tft.fillScreen(TFT_BLACK);
-  tft.setTextColor(TFT_WHITE, TFT_BLACK);
-  tft.setTextSize(1);
-  tft.setCursor(0,0);
-  tft.println("MPU6050 Iniciado");
-
-  // WiFi AP
-  WiFi.softAP("ESP32_DATA", "12345678");
-  tft.println("AP criado: ESP32_DATA");
-  tft.println("IP: 192.168.4.1");
-
-  webSocket.begin();
-  Serial.println("WebSocket iniciado porta 81");
-}
-
-// -------- LEITURA MPU --------
 void readMPU() {
   Wire.beginTransmission(MPU_ADDR);
   Wire.write(0x3B);
   Wire.endTransmission(false);
   Wire.requestFrom(MPU_ADDR, 14, true);
 
-  ax = Wire.read() << 8 | Wire.read();
-  ay = Wire.read() << 8 | Wire.read();
-  az = Wire.read() << 8 | Wire.read();
-  gx = Wire.read() << 8 | Wire.read();
-  gy = Wire.read() << 8 | Wire.read();
-  gz = Wire.read() << 8 | Wire.read();
+  ax = Wire.read()<<8 | Wire.read();
+  ay = Wire.read()<<8 | Wire.read();
+  az = Wire.read()<<8 | Wire.read();
+  gx = Wire.read()<<8 | Wire.read();
+  gy = Wire.read()<<8 | Wire.read();
+  gz = Wire.read()<<8 | Wire.read();
 }
 
-// -------- LOOP PRINCIPAL --------
+void setup() {
+  Serial.begin(115200);
+  Wire.begin(9, 10);
+  pinMode(BTN_PIN, INPUT_PULLUP);
+
+  // acorda MPU
+  Wire.beginTransmission(MPU_ADDR);
+  Wire.write(0x6B);
+  Wire.write(0x00);
+  Wire.endTransmission();
+
+  WiFi.softAP("ESP32_DATA", "12345678");
+  webSocket.begin();
+
+  Serial.println("\n========= SISTEMA INICIADO =========");
+  Serial.println("Modo selecionado: QUEDA");
+  Serial.println("=====================================");
+}
+
 void loop() {
   webSocket.loop();
   readMPU();
 
-  static unsigned long lastNormalTime = 0;
+  if (sessaoAtual == SESSAO_NORMAL) {
 
-  switch (estado) {
-    case NORMAL:
-      if (motionInterrupt) {
-        motionInterrupt = false;
-        estado = QUEDA;
-        Serial.println("🔥 Queda detectada!");
-        tft.fillScreen(TFT_BLACK);
-        tft.setCursor(0,0);
-        tft.println("🔥 Queda detectada!");
-      }
+    String msg =
+      String(ax) + "," + String(ay) + "," + String(az) + "," +
+      String(gx) + "," + String(gy) + "," + String(gz) + ",0," + 
+      String(fall_id);
 
-      // Coleta normal cada 2s
-      if (millis() - lastNormalTime > 2000) {
-        String msg = String(ax) + "," + String(ay) + "," + String(az) + "," +
-                     String(gx) + "," + String(gy) + "," + String(gz);
-        webSocket.broadcastTXT(msg);
-        lastNormalTime = millis();
-      }
-      break;
-
-    case QUEDA:
-      // Envia dados de queda continuamente
-      {
-        String msg = String(ax) + "," + String(ay) + "," + String(az) + "," +
-                     String(gx) + "," + String(gy) + "," + String(gz);
-        webSocket.broadcastTXT(msg);
-      }
-
-      // Checa zero motion para terminar a queda
-      if (zeroInterrupt) {
-        zeroInterrupt = false;
-        estado = NORMAL;
-        Serial.println("📌 Fim da queda");
-        tft.fillScreen(TFT_BLACK);
-        tft.setCursor(0,0);
-        tft.println("📌 Fim da queda");
-      }
-      break;
+    webSocket.broadcastTXT(msg);
+    delay(50);
+    return;
   }
+
+  //
+  // ===========================
+  //      MODO QUEDA
+  // ===========================
+  //
+
+  bool btn = digitalRead(BTN_PIN);
+
+  if (lastBtn == HIGH && btn == LOW) {
+    quedaGravando = !quedaGravando;
+
+    if (quedaGravando) {
+      Serial.println("INICIO DA QUEDA");
+    } else {
+      Serial.println("FIM DA QUEDA");
+      fall_id++;  // incrementa o id da queda
+    }
+
+    delay(250);
+  }
+
+  lastBtn = btn;
+
+  if (quedaGravando) {
+    String msg =
+      String(ax) + "," + String(ay) + "," + String(az) + "," +
+      String(gx) + "," + String(gy) + "," + String(gz) + ",1," +
+      String(fall_id);  // envia id da queda
+
+    webSocket.broadcastTXT(msg);
+  }
+
+  delay(10);
 }
