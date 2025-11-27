@@ -1,0 +1,17 @@
+===== CLASSIFICATION REPORT =====
+              precision    recall  f1-score   support
+
+           0       0.93      0.88      0.90        16
+           1       0.88      0.94      0.91        16
+
+    accuracy                           0.91        32
+   macro avg       0.91      0.91      0.91        32
+weighted avg       0.91      0.91      0.91        32
+
+
+===== MATRIZ DE CONFUSÃO =====
+[[14  2]
+ [ 1 15]]
+
+
+Cross-val accuracy (5-fold): [0.92307692 0.92       0.92       0.96       0.88      ] Média: 0.9206153846153846

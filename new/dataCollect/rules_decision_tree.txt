@@ -1,0 +1,5 @@
+(std_az <= 3535.57666) AND (max_gx <= -968.00000) => class=0
+(std_az <= 3535.57666) AND (max_gx > -968.00000) => class=0
+(std_az > 3535.57666) AND (min_gx <= -912.00000) AND (std_ax <= 3708.22363) => class=1
+(std_az > 3535.57666) AND (min_gx <= -912.00000) AND (std_ax > 3708.22363) => class=1
+(std_az > 3535.57666) AND (min_gx > -912.00000) => class=0
