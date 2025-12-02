@@ -1,17 +1,22 @@
 #include <stdio.h>
+#include <string.h>
 #include "driver/i2c.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "esp_log.h"
+#include "mpu6050_registers.h"
 #include "MPU6050.h"
 
 #define I2C_PORT I2C_NUM_0
-#define SDA_PIN 9     // Você disse que funcionam no Arduino IDE
+#define SDA_PIN 9
 #define SCL_PIN 10
-static const char *TAG = "MAIN";
+
+static const char *TAG = "I2C_MPU";
 
 extern "C" void app_main() {
-    ESP_LOGI(TAG, "Inicializando I2C...");
+
+    esp_log_level_set("*", ESP_LOG_VERBOSE);
+    ESP_LOGI(TAG, "=== INICIANDO APP_MAIN ===");
 
     i2c_config_t conf = {};
     conf.mode = I2C_MODE_MASTER;
@@ -21,32 +26,41 @@ extern "C" void app_main() {
     conf.scl_pullup_en = GPIO_PULLUP_ENABLE;
     conf.master.clk_speed = 400000;
 
-    i2c_param_config(I2C_PORT, &conf);
-    i2c_driver_install(I2C_PORT, conf.mode, 0, 0, 0);
+    ESP_LOGI(TAG, "Configurando I2C...");
 
-    ESP_LOGI(TAG, "I2C OK!");
+    esp_err_t err;
 
-    MPU6050 mpu(I2C_PORT, 0x69);
+    err = i2c_param_config(I2C_PORT, &conf);
+    ESP_LOGW(TAG, "i2c_param_config -> %s", esp_err_to_name(err));
 
-    if (!mpu.begin()) {
-        ESP_LOGE(TAG, "MPU6050 NAO DETECTADO! (endereco 0x69)");
-        while (1) { vTaskDelay(1000 / portTICK_PERIOD_MS); }
+    err = i2c_driver_install(I2C_PORT, conf.mode, 0, 0, 0);
+    ESP_LOGW(TAG, "i2c_driver_install -> %s", esp_err_to_name(err));
+
+    ESP_LOGI(TAG, "Inicializando MPU6050...");
+
+    MPU6050 mpu(I2C_PORT, MPU6050_ADDRESS);
+
+    bool ok = mpu.begin();
+    ESP_LOGW(TAG, "mpu.begin -> %d", ok);
+
+    if (!ok) {
+        ESP_LOGE(TAG, "MPU6050 NÃO DETECTADO!");
     }
 
-    ESP_LOGI(TAG, "MPU6050 iniciado!");
+    ESP_LOGI(TAG, "Entrando no loop...");
 
-    // Loop 
-    while (1) {
-        if (mpu.update() == ESP_OK) {
-            ESP_LOGI(TAG, "ACC: %d %d %d | GYRO: %d %d %d | TEMP: %.2f",
-         mpu.getAccX(), mpu.getAccY(), mpu.getAccZ(),
-         mpu.getGyroX(), mpu.getGyroY(), mpu.getGyroZ(),
-         mpu.getTemperatureC());
+    while (true) {
+        esp_err_t ret = mpu.update();
 
+        if (ret == ESP_OK) {
+            ESP_LOGI(TAG,
+                "ACC: %6d %6d %6d | GYRO: %6d %6d %6d ",
+                mpu.getAccX(), mpu.getAccY(), mpu.getAccZ(),
+                mpu.getGyroX(), mpu.getGyroY(), mpu.getGyroZ());
         } else {
-            ESP_LOGE(TAG, "Erro lendo dados!");
+            ESP_LOGE(TAG, "Erro mpu.update(): %s", esp_err_to_name(ret));
         }
 
-        vTaskDelay(500 / portTICK_PERIOD_MS);
+        vTaskDelay(pdMS_TO_TICKS(500));
     }
 }
