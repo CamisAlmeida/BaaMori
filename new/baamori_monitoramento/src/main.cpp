@@ -60,7 +60,7 @@ extern "C" void app_main() {
         } else {
             ESP_LOGE(TAG, "Erro mpu.update(): %s", esp_err_to_name(ret));
         }
-
+        
         vTaskDelay(pdMS_TO_TICKS(500));
     }
 }
