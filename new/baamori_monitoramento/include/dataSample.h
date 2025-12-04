@@ -9,7 +9,6 @@ private:
 
 public:
 
-    // 🔥 Construtor default NECESSÁRIO
     dataSample()
         : accX(0), accY(0), accZ(0), gyroX(0), gyroY(0), gyroZ(0) {}
 
