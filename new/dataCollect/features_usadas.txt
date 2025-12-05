@@ -1,0 +1,4 @@
+mean_gx
+min_gx
+std_ax
+std_az
