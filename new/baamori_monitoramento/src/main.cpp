@@ -1,6 +1,6 @@
 #include <stdio.h>
 #include <string.h>
-#include <inttypes.h> 
+#include <inttypes.h>   // ← NECESSÁRIO para PRIu32
 #include "driver/i2c.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -22,7 +22,6 @@ static const char *TAG = "I2C_MPU";
 
 extern "C" void app_main()
 {
-    // SETUP
     esp_log_level_set("*", ESP_LOG_VERBOSE);
     ESP_LOGI(TAG, "INICIANDO APP_MAIN ");
 
@@ -58,15 +57,12 @@ extern "C" void app_main()
     }
 
     // BUFFER, STATISTICS, TREE
-    Buffer buffer(500);
+    Buffer buffer(2000);
     DataStatistics stats;
     decisionTree tree;
 
-    uint32_t sampleCounter = 0;   
-
     ESP_LOGI(TAG, "Entrando no loop...");
 
-    // LOOP
     while (true)
     {
         esp_err_t ret = mpu.update();
@@ -77,20 +73,14 @@ extern "C" void app_main()
                 mpu.getAccX(), mpu.getAccY(), mpu.getAccZ(),
                 mpu.getGyroX(), mpu.getGyroY(), mpu.getGyroZ());
 
-            buffer.push(sample);   // buffer circular, sobrescreve
+            buffer.push(sample);
+
             stats.update(
                 sample.getAccX(), sample.getAccY(), sample.getAccZ(),
                 sample.getGyroX(), sample.getGyroY(), sample.getGyroZ());
 
-            // sampleCounter++;
-
-            // JANELA DE 500 AMOSTRAS 
             if (buffer.isFull())
             {
-                // ESP_LOGI(TAG,
-                //     "JANELA COMPLETA (%u samples)",
-                //     stats.getCount());   
-
                 tree.checkFall(stats);
 
                 if (tree.getIsFall()) {
@@ -99,10 +89,8 @@ extern "C" void app_main()
                     ESP_LOGI(TAG, "Nenhuma queda");
                 }
 
-                // reset para próxima janela
                 stats.reset();
                 tree.resetFall();
-                // sampleCounter = 0;
             }
         }
         else
@@ -110,6 +98,6 @@ extern "C" void app_main()
             ESP_LOGE(TAG, "Erro mpu.update(): %s", esp_err_to_name(ret));
         }
 
-        // vTaskDelay(pdMS_TO_TICKS(10));
+        vTaskDelay(pdMS_TO_TICKS(10));
     }
 }
