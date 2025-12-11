@@ -1,217 +1,117 @@
-"""
-train_export_decision_tree.py
-"""
-
-import os
-import pandas as pd
 import numpy as np
-from sklearn.tree import DecisionTreeClassifier, _tree, export_text
-from sklearn.model_selection import train_test_split, cross_val_score
-from sklearn.metrics import classification_report, confusion_matrix
+import pandas as pd
+from sklearn.model_selection import train_test_split
 from sklearn.ensemble import RandomForestClassifier
-import joblib
-
-# CONFIGURAÇÕES
-BASE = "new/dataCollect/"
-
-normal_csv = BASE + "normal_2025-11-25_15-16-55_cotidiano.csv"
-
-queda_files = [
-    BASE + "queda_2025-11-25_16-52-59_traz.csv",
-    BASE + "queda_2025-11-25_16-58-06_frente1.csv",
-    BASE + "queda_2025-11-25_17-06-41-frente2.csv",
-    BASE + "queda_2025-11-25_17-10-20_lado.csv",
-]
-
-timestamp_cols = ["timestamp_inicio", "timestamp_fim", "timestamp", "time"]
-drop_cols = ["fall_id", "n_samples"]
-label_col = "classe"
-
-# ÁRVORE GRANDE
-MAX_DEPTH = 10
-MIN_SAMPLES_LEAF = 4
+from sklearn.tree import _tree
+import json
 
 
-# =============================
-# FUNÇÕES AUXILIARES
-# =============================
-def load_csv(path):
-    print("Lendo:", path)
-    return pd.read_csv(path)
+# Função para exportar uma árvore individual para C
+def export_tree_to_c(tree, tree_id):
+    tree_ = tree.tree_
+    features = tree_.feature
+    thresholds = tree_.threshold
+    children_left = tree_.children_left
+    children_right = tree_.children_right
+    values = tree_.value[:, 0, :]  # classes
+
+    lines = []
+    lines.append(f"int predict_tree_{tree_id}(float *x) {{")
+
+    def recurse(node, depth):
+        indent = "  " * depth
+        if children_left[node] == _tree.TREE_LEAF:
+            cls = np.argmax(values[node])
+            lines.append(f"{indent}return {cls};")
+        else:
+            feat = features[node]
+            thr = thresholds[node]
+
+            lines.append(f"{indent}if (x[{feat}] <= {thr}f) {{")
+            recurse(children_left[node], depth + 1)
+            lines.append(f"{indent}}} else {{")
+            recurse(children_right[node], depth + 1)
+            lines.append(f"{indent}}}")
+
+    recurse(0, 1)
+    lines.append("}\n")
+    return "\n".join(lines)
 
 
-def standardize_columns(df):
-    df = df.rename(columns=lambda s: s.strip() if isinstance(s, str) else s)
-    return df
+# Função para exportar a RandomForest inteira
+def export_forest_to_c(clf):
+    header = "// ===== RandomForest exportada automaticamente =====\n\n"
+
+    trees_c = []
+    for i, estimator in enumerate(clf.estimators_):
+        trees_c.append(export_tree_to_c(estimator, i))
+
+    # Função principal (votação)
+    main_fn = """
+int predict_forest(float *x) {
+    int votes[2] = {0, 0};
+"""
+
+    for i in range(len(clf.estimators_)):
+        main_fn += f"    votes[predict_tree_{i}(x)]++;\n"
+
+    main_fn += """
+    return (votes[1] > votes[0]) ? 1 : 0;
+}
+"""
+
+    return header + "\n".join(trees_c) + main_fn
 
 
-# =============================
-# CARREGAR E UNIFICAR DATASETS
-# =============================
+# THRESHOLD DINÂMICO
+def compute_dynamic_threshold(df):
+    """
+    Ajusta o threshold automático baseado na magnitude média das quedas.
+    Assume que a feature 'acc_mag' existe.
+    """
 
-print("\nCarregando arquivos...")
+    mag_fall = df[df["label"] == 1]['acc_mag'].mean()
+    mag_normal = df[df["label"] == 0]['acc_mag'].mean()
 
-df_normal = load_csv(normal_csv)
-df_normal[label_col] = 0  # normal
-
-queda_list = []
-for q in queda_files:
-    df_q = load_csv(q)
-    df_q[label_col] = 1  # queda
-    queda_list.append(df_q)
-
-df_queda = pd.concat(queda_list, ignore_index=True)
-
-df = pd.concat([df_normal, df_queda], ignore_index=True)
-
-df = standardize_columns(df)
+    # Fórmula simples + robusta:
+    threshold = (mag_fall + mag_normal) / 2
+    return threshold
 
 
-# =============================
-# REMOVER COLUNAS NÃO NUMÉRICAS
-# =============================
-for col in timestamp_cols + drop_cols:
-    if col in df.columns:
-        df = df.drop(columns=[col])
+# CARREGAR DADOS E TREINAR MODELO
+df = pd.read_csv("new\dataCollect\dataset_balanceado.csv")
 
+X = df.drop(columns=["label"]).values
+y = df["label"].values
 
-# =============================
-# DEFINIR FEATURES
-# =============================
-feature_names = [
-    "mean_ax", "mean_ay", "mean_az",
-    "std_ax", "std_ay", "std_az",
-    "min_ax", "min_ay", "min_az",
-    "max_ax", "max_ay", "max_az",
+# Calcular threshold dinâmico
+dynamic_threshold = compute_dynamic_threshold(df)
 
-    "mean_gx", "mean_gy", "mean_gz",
-    "std_gx", "std_gy", "std_gz",
-    "min_gx", "min_gy", "min_gz",
-    "max_gx", "max_gy", "max_gz",
-]
-
-# Garantir apenas as colunas que existem
-feature_names = [f for f in feature_names if f in df.columns]
-
-X = df[feature_names].values
-y = df[label_col].values
-
-print(f"\nTotal de amostras: {len(df)}")
-print(f"Features usadas ({len(feature_names)}): {feature_names}")
-
-
-# =============================
-# TREINO / TESTE
-# =============================
+# Divisão treino/teste
 X_train, X_test, y_train, y_test = train_test_split(
-    X, y, test_size=0.25, random_state=42, stratify=y
+    X, y, test_size=0.2, random_state=42
 )
 
-# ===== RANDOM FOREST ==========
-
+# TREINAR RANDOM FOREST
 clf = RandomForestClassifier(
-    n_estimators=100,
-    max_depth=10,
-    min_samples_leaf=8,
-    class_weight="balanced",
-    max_features="sqrt",
+    n_estimators=10,
+    max_depth=6,
+    min_samples_leaf=3,
     random_state=42
 )
 
 clf.fit(X_train, y_train)
 
+print("Acurácia:", clf.score(X_test, y_test))
 
-# =============================
-# AVALIAÇÃO
-# =============================
-y_pred = clf.predict(X_test)
+# EXPORTAR PARA C
+c_code = export_forest_to_c(clf)
 
-report_text = classification_report(y_test, y_pred)
-cm_text = str(confusion_matrix(y_test, y_pred))
-
-print("\n===== CLASSIFICATION REPORT =====\n")
-print(report_text)
-
-print("\n===== MATRIZ DE CONFUSÃO =====\n")
-print(cm_text)
-
-scores = cross_val_score(clf, X, y, cv=5)
-cv_text = "\nCross-val accuracy (5-fold): " + str(scores) + " Média: " + str(scores.mean())
-
-print(cv_text)
-
-# SALVAR MÉTRICAS
-with open(BASE + "metricas_decision_tree.txt", "w") as f:
-    f.write("===== CLASSIFICATION REPORT =====\n")
-    f.write(report_text)
-    f.write("\n\n===== MATRIZ DE CONFUSÃO =====\n")
-    f.write(cm_text)
-    f.write("\n\n" + cv_text)
-
-print("\nMétricas salvas em:", BASE + "metricas_decision_tree.txt")
-
-
-# =============================
-# IMPORTÂNCIA DAS FEATURES
-# =============================
-feat_imp = sorted(zip(feature_names, clf.feature_importances_), key=lambda x: x[1], reverse=True)
-print("\n===== IMPORTÂNCIAS =====")
-for f, imp in feat_imp:
-    print(f"{f}: {imp:.4f}")
-
-
-# =============================
-# SALVAR MODELO
-# =============================
-joblib.dump(clf, BASE + "random_forest_model.joblib")
-print("\nModelo salvo em:", BASE + "random_forest_model.joblib")
-
-
-# ============================================
-#      EXTRAIR A MELHOR ÁRVORE DA FLORESTA
-# ============================================
-
-best_tree_index = np.argmax([estimator.tree_.node_count for estimator in clf.estimators_])
-best_tree = clf.estimators_[best_tree_index]
-
-print("\nUsando a árvore simplificada número:", best_tree_index)
-
-
-# ===========================================================
-#     FUNÇÃO: CONVERTER A MELHOR ÁRVORE PARA C
-# ===========================================================
-def tree_to_c(tree, feature_names, func_name="predict_fall_from_features"):
-
-    t = tree.tree_
-
-    def generate(node, depth):
-        indent = "    " * depth
-        if t.feature[node] != _tree.TREE_UNDEFINED:
-            feat = feature_names[t.feature[node]]
-            thr = t.threshold[node]
-            left = t.children_left[node]
-            right = t.children_right[node]
-
-            return (
-                f"{indent}if (features[{t.feature[node]}] <= {thr:.12f}) {{\n" +
-                generate(left, depth + 1) +
-                f"{indent}}} else {{\n" +
-                generate(right, depth + 1) +
-                f"{indent}}}\n"
-            )
-        else:
-            cid = int(np.argmax(t.value[node][0]))
-            return f"{indent}return {cid};\n"
-
-    header = f"int {func_name}(double features[]) {{\n"
-    body = generate(0, 1)
-    footer = "}\n"
-    return header + body + footer
-
-
-c_code = tree_to_c(best_tree, feature_names)
-
-with open(BASE + "tree_model.c", "w") as f:
+with open("random_forest_exported.c", "w") as f:
     f.write(c_code)
 
-print("Código C salvo em:", BASE + "tree_model.c")
+# EXPORTAR THRESHOLD DINÂMICO
+with open("dynamic_threshold.h", "w") as f:
+    f.write(f"#define FALL_DYNAMIC_THRESHOLD {dynamic_threshold}f\n")
+
+print("Exportação concluída!")

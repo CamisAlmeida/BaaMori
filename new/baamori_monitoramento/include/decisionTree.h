@@ -4,7 +4,8 @@
 
 #include "dataStatistics.h"
 
-class decisionTree {
+class decisionTree
+{
 public:
     decisionTree() : isFall(false) {}
 
@@ -12,38 +13,82 @@ public:
 
     void resetFall() { isFall = false; }
 
-    void checkFall(const DataStatistics &statistic) {
-        // Se ainda não há amostras, não decide
-        if (statistic.getCount() == 0) {
+    void checkFall(const DataStatistics &statistic)
+    {
+        if (statistic.getCount() == 0)
+        {
             isFall = false;
             return;
         }
-
         int pred;
-
-        if (statistic.getMaxAZ() <= 3535.576660156250) {
-            if (statistic.meanGX() <= -1035.839965820312) {
-                pred = 0;
-            } else {
-                pred = 0;
+        if (statistic.getMinGY() <= 3964.802124023438)
+        {
+            if (statistic.meanGX() <= 19.265387535095)
+            {
+                if (statistic.meanAY() <= -1248.459960937500)
+                {
+                    pred = 0;
+                }
+                else
+                {
+                    pred = 0;
+                }
             }
-        } else {
-            if ( statistic.meanAX() <= -912.0) {
-                if (statistic.magAccMean() <= 3265.449340820312) {
-                    pred = 1;
-                } else {
+            else
+            {
+                if (statistic.getMinAX() <= 1981.239990234375)
+                {
+                    if (statistic.meanGX() <= 21.009377479553)
+                    {
+                        if (statistic.meanGY() <= 2124.553161621094)
+                        {
+                            pred = 0;
+                        }
+                        else
+                        {
+                            pred = 0;
+                        }
+                    }
+                    else
+                    {
+                        pred = 0;
+                    }
+                }
+                else
+                {
                     pred = 1;
                 }
-            } else {
+            }
+        }
+        else
+        {
+            if (statistic.getMaxGX() <= 5292.0)
+            {
                 pred = 0;
+            }
+            else
+            {
+                if (statistic.meanGY() <= 6654.609375)
+                {
+                    if (statistic.getMinGX() <= 4662.233642578125)
+                    {
+                        pred = 1;
+                    }
+                    else
+                    {
+                        pred = 1;
+                    }
+                }
+                else
+                {
+                    pred = 1;
+                }
             }
         }
 
-        // Atualiza a flag interna
         isFall = (pred == 1);
     }
 
 private:
     bool isFall;
-    
 };

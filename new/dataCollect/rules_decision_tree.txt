@@ -1,5 +1,0 @@
-(std_az <= 3535.57666) AND (mean_gx <= -1035.83997) => class=0
-(std_az <= 3535.57666) AND (mean_gx > -1035.83997) => class=0
-(std_az > 3535.57666) AND (min_gx <= -912.00000) AND (std_ax <= 3265.44934) => class=1
-(std_az > 3535.57666) AND (min_gx <= -912.00000) AND (std_ax > 3265.44934) => class=1
-(std_az > 3535.57666) AND (min_gx > -912.00000) => class=0
