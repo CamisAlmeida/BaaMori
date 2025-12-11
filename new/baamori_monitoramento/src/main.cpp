@@ -3,12 +3,12 @@
 #include <string.h>
 #include <inttypes.h>
 #include <time.h>
+#include <inttypes.h>
 
 #include "driver/i2c.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "esp_log.h"
-#include "esp_sntp.h"
 #include "esp_wifi.h"
 #include "esp_event.h"
 #include "nvs_flash.h"
@@ -20,6 +20,8 @@
 #include "buffer.h"
 #include "dataStatistics.h"
 #include "decisionTree.h"
+#include "timeStamp.h"
+#include "Queda.h"
 
 #define I2C_PORT I2C_NUM_0
 #define SDA_PIN 9
@@ -30,9 +32,7 @@ static const char *TAG_WIFI = "WIFI";
 static const char *TAG_TIME = "TIME";
 static const char *TAG_I2C  = "I2C_MPU";
 
-// =============================================================
-//                Conectar ao WIFI (STA)
-// =============================================================
+// Conectar ao WIFI (STA)
 void wifi_start()
 {
     ESP_LOGI(TAG_WIFI, "Inicializando WiFi...");
@@ -79,15 +79,6 @@ void wifi_start()
     }
 }
 
-// SNTP INIT
-void init_sntp() {
-    ESP_LOGI(TAG_TIME, "Iniciando SNTP...");
-
-    esp_sntp_setoperatingmode(SNTP_OPMODE_POLL);
-    esp_sntp_setservername(0, "pool.ntp.org");
-    esp_sntp_init();
-}
-
 extern "C" void app_main()
 {   
     // SETUP
@@ -97,7 +88,7 @@ extern "C" void app_main()
     wifi_start();
 
     // Sincronizar horário
-    init_sntp();
+    init_sntp(TAG_TIME);
     vTaskDelay(2000 / portTICK_PERIOD_MS);
 
     time_t now;
@@ -139,44 +130,69 @@ extern "C" void app_main()
 
     // LOOP 
     while (true)
+{
+    if (mpu.update() == ESP_OK)
     {
-        if (mpu.update() == ESP_OK)
+
+        dataSample sample(
+            mpu.getAccX(), mpu.getAccY(), mpu.getAccZ(),
+            mpu.getGyroX(), mpu.getGyroY(), mpu.getGyroZ());
+
+        buffer.push(sample);
+
+        stats.update(
+            sample.getAccX(), sample.getAccY(), sample.getAccZ(),
+            sample.getGyroX(), sample.getGyroY(), sample.getGyroZ());
+
+        tree.checkFall(stats);
+
+        if (tree.getIsFall())
         {
-            dataSample sample(
-                mpu.getAccX(), mpu.getAccY(), mpu.getAccZ(),
-                mpu.getGyroX(), mpu.getGyroY(), mpu.getGyroZ());
+            ESP_LOGE("FALL", "QUEDA DETECTADA!");
 
-            buffer.push(sample);
+            Queda q(stats);
 
-            stats.update(
-                sample.getAccX(), sample.getAccY(), sample.getAccZ(),
-                sample.getGyroX(), sample.getGyroY(), sample.getGyroZ());
+            ESP_LOGI("QUEDA", "Registrada em: %s", q.getTimestampString().c_str());
 
-            if (buffer.isFull())
+            const DataStatistics& s = q.getStatistics();
+
+            if (s.getCount() == 0) {
+                ESP_LOGW("QUEDA", "Estatísticas vazias.");
+            } 
+            else 
             {
-                tree.checkFall(stats);
+                ESP_LOGI("QUEDA", "Count: %" PRIu32, s.getCount());
+                ESP_LOGI("QUEDA", "Min ACC: AX=%.2f AY=%.2f AZ=%.2f",
+                        s.getMinAX(), s.getMinAY(), s.getMinAZ());
+                ESP_LOGI("QUEDA", "Max ACC: AX=%.2f AY=%.2f AZ=%.2f",
+                        s.getMaxAX(), s.getMaxAY(), s.getMaxAZ());
+                ESP_LOGI("QUEDA", "Mean ACC: AX=%.2f AY=%.2f AZ=%.2f",
+                        s.meanAX(), s.meanAY(), s.meanAZ());
+                ESP_LOGI("QUEDA", "Std ACC: AX=%.2f AY=%.2f AZ=%.2f",
+                        s.stdAX(), s.stdAY(), s.stdAZ());
+                ESP_LOGI("QUEDA", "MagAccMean: %.2f", s.magAccMean());
 
-                if (tree.getIsFall()) {
-                    ESP_LOGE("FALL", "QUEDA DETECTADA!");
-
-                    time(&now);
-                    localtime_r(&now, &timeinfo);
-
-                    char bufferTime[64];
-                    strftime(bufferTime, sizeof(bufferTime),
-                            "%d/%m/%Y %H:%M:%S", &timeinfo);
-
-                    printf("Data e hora atual: %s\n", bufferTime);
-                }
-
-                stats.reset();
-                tree.resetFall();
-            }else{
-                ESP_LOGE("Buffer", "enchendo...");
-
+                ESP_LOGI("QUEDA", "Min GYRO: GX=%.2f GY=%.2f GZ=%.2f",
+                        s.getMinGX(), s.getMinGY(), s.getMinGZ());
+                ESP_LOGI("QUEDA", "Max GYRO: GX=%.2f GY=%.2f GZ=%.2f",
+                        s.getMaxGX(), s.getMaxGY(), s.getMaxGZ());
+                ESP_LOGI("QUEDA", "Mean GYRO: GX=%.2f GY=%.2f GZ=%.2f",
+                        s.meanGX(), s.meanGY(), s.meanGZ());
+                ESP_LOGI("QUEDA", "Std GYRO: GX=%.2f GY=%.2f GZ=%.2f",
+                        s.stdGX(), s.stdGY(), s.stdGZ());
+                ESP_LOGI("QUEDA", "MagGyroMean: %.2f", s.magGyroMean());
             }
+
+            stats.reset();
+            tree.resetFall();
         }
 
-        vTaskDelay(pdMS_TO_TICKS(10));
+        if (buffer.isFull()) {
+            ESP_LOGI("BUFFER", "Buffer cheio (circular).");
+        }
     }
+
+    vTaskDelay(pdMS_TO_TICKS(10));
+}
+
 }
