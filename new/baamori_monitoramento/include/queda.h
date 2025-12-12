@@ -6,8 +6,8 @@
 class Queda
 {
 private:
-    time_t timestamp;          // Data/hora da queda
-    DataStatistics statistics; // Estatísticas completas
+    time_t timestamp;          
+    DataStatistics statistics; 
 
 public:
     Queda() : timestamp(0) {}

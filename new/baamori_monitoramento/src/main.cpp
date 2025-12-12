@@ -23,6 +23,41 @@
 #include "timeStamp.h"
 #include "Queda.h"
 
+// ThingsBoard
+static const char *TB_TOKEN = "MRkyIriS9BFN4rqCJnst";
+static const char *TB_URL = "http://thingsboard.cloud/api/v1/";
+
+#include "esp_http_client.h"
+
+void send_to_thingsboard(const char *json_payload)
+{
+    char url[256];
+    snprintf(url, sizeof(url), "%s%s/telemetry", TB_URL, TB_TOKEN);
+
+    esp_http_client_config_t config = {
+        .url = url,
+        .method = HTTP_METHOD_POST,
+        .timeout_ms = 5000
+    };
+
+    esp_http_client_handle_t client = esp_http_client_init(&config);
+
+    esp_http_client_set_header(client, "Content-Type", "application/json");
+    esp_http_client_set_post_field(client, json_payload, strlen(json_payload));
+
+    esp_err_t err = esp_http_client_perform(client);
+
+    if (err == ESP_OK) {
+        ESP_LOGI("THINGSBOARD", "Status = %d",
+                 esp_http_client_get_status_code(client));
+    } else {
+        ESP_LOGE("THINGSBOARD", "Erro ao enviar: %s", esp_err_to_name(err));
+    }
+
+    esp_http_client_cleanup(client);
+}
+
+//I2C
 #define I2C_PORT I2C_NUM_0
 #define SDA_PIN 9
 #define SCL_PIN 10
@@ -122,7 +157,7 @@ extern "C" void app_main()
     MPU6050 mpu(I2C_PORT, MPU6050_ADDRESS);
     mpu.begin();
 
-    Buffer buffer(2000);
+    Buffer buffer(4000);
     DataStatistics stats;
     decisionTree tree;
 
@@ -152,47 +187,54 @@ extern "C" void app_main()
 
             Queda q(stats);
 
-            ESP_LOGI("QUEDA", "Registrada em: %s", q.getTimestampString().c_str());
-
             const DataStatistics& s = q.getStatistics();
 
-            if (s.getCount() == 0) {
-                ESP_LOGW("QUEDA", "Estatísticas vazias.");
-            } 
-            else 
-            {
-                ESP_LOGI("QUEDA", "Count: %" PRIu32, s.getCount());
-                ESP_LOGI("QUEDA", "Min ACC: AX=%.2f AY=%.2f AZ=%.2f",
-                        s.getMinAX(), s.getMinAY(), s.getMinAZ());
-                ESP_LOGI("QUEDA", "Max ACC: AX=%.2f AY=%.2f AZ=%.2f",
-                        s.getMaxAX(), s.getMaxAY(), s.getMaxAZ());
-                ESP_LOGI("QUEDA", "Mean ACC: AX=%.2f AY=%.2f AZ=%.2f",
-                        s.meanAX(), s.meanAY(), s.meanAZ());
-                ESP_LOGI("QUEDA", "Std ACC: AX=%.2f AY=%.2f AZ=%.2f",
-                        s.stdAX(), s.stdAY(), s.stdAZ());
-                ESP_LOGI("QUEDA", "MagAccMean: %.2f", s.magAccMean());
+            char json[512];
+    
+            snprintf(json, sizeof(json),
+                "{"
+                "\"queda\":1,"
+                "\"timestamp\":\"%s\","
+                "\"count\":%lu,"
+                "\"acc_min_x\":%.2f,"
+                "\"acc_min_y\":%.2f,"
+                "\"acc_min_z\":%.2f,"
+                "\"acc_max_x\":%.2f,"
+                "\"acc_max_y\":%.2f,"
+                "\"acc_max_z\":%.2f,"
+                "\"acc_mean_x\":%.2f,"
+                "\"acc_mean_y\":%.2f,"
+                "\"acc_mean_z\":%.2f,"
+                "\"gyro_min_x\":%.2f,"
+                "\"gyro_min_y\":%.2f,"
+                "\"gyro_min_z\":%.2f,"
+                "\"gyro_max_x\":%.2f,"
+                "\"gyro_max_y\":%.2f,"
+                "\"gyro_max_z\":%.2f,"
+                "\"gyro_mean_x\":%.2f,"
+                "\"gyro_mean_y\":%.2f,"
+                "\"gyro_mean_z\":%.2f"
+                "}",
+                q.getTimestampString().c_str(),
+                (unsigned long)s.getCount(),
+                s.getMinAX(), s.getMinAY(), s.getMinAZ(),
+                s.getMaxAX(), s.getMaxAY(), s.getMaxAZ(),
+                s.meanAX(), s.meanAY(), s.meanAZ(),
+                s.getMinGX(), s.getMinGY(), s.getMinGZ(),
+                s.getMaxGX(), s.getMaxGY(), s.getMaxGZ(),
+                s.meanGX(), s.meanGY(), s.meanGZ()
+            );
+            
+            ESP_LOGI("TB_JSON", "Payload: %s", json);
 
-                ESP_LOGI("QUEDA", "Min GYRO: GX=%.2f GY=%.2f GZ=%.2f",
-                        s.getMinGX(), s.getMinGY(), s.getMinGZ());
-                ESP_LOGI("QUEDA", "Max GYRO: GX=%.2f GY=%.2f GZ=%.2f",
-                        s.getMaxGX(), s.getMaxGY(), s.getMaxGZ());
-                ESP_LOGI("QUEDA", "Mean GYRO: GX=%.2f GY=%.2f GZ=%.2f",
-                        s.meanGX(), s.meanGY(), s.meanGZ());
-                ESP_LOGI("QUEDA", "Std GYRO: GX=%.2f GY=%.2f GZ=%.2f",
-                        s.stdGX(), s.stdGY(), s.stdGZ());
-                ESP_LOGI("QUEDA", "MagGyroMean: %.2f", s.magGyroMean());
-            }
+            send_to_thingsboard(json);
 
             stats.reset();
             tree.resetFall();
         }
 
-        if (buffer.isFull()) {
-            ESP_LOGI("BUFFER", "Buffer cheio (circular).");
         }
     }
 
-    vTaskDelay(pdMS_TO_TICKS(10));
 }
 
-}
