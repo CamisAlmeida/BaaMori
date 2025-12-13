@@ -24,7 +24,7 @@
 #include "Queda.h"
 
 // ThingsBoard
-static const char *TB_TOKEN = "MRkyIriS9BFN4rqCJnst";
+static const char *TB_TOKEN = "Your_token";
 static const char *TB_URL = "http://thingsboard.cloud/api/v1/";
 
 #include "esp_http_client.h"
