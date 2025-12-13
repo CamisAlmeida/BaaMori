@@ -12,6 +12,7 @@
 #include "esp_wifi.h"
 #include "esp_event.h"
 #include "nvs_flash.h"
+#include "sdkconfig.h"
 
 // Include class
 #include "mpu6050_registers.h"
@@ -24,7 +25,7 @@
 #include "Queda.h"
 
 // ThingsBoard
-static const char *TB_TOKEN = "MRkyIriS9BFN4rqCJnst";
+static const char *TB_TOKEN = CONFIG_TB_TOKEN;
 static const char *TB_URL = "http://thingsboard.cloud/api/v1/";
 
 #include "esp_http_client.h"

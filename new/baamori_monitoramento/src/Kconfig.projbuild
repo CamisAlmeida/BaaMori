@@ -1,0 +1,7 @@
+menu "Application Configuration"
+
+config TB_TOKEN
+    string "ThingsBoard Access Token"
+    default ""
+
+endmenu
