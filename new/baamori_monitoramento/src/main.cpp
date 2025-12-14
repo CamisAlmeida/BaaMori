@@ -4,7 +4,6 @@
 #include <inttypes.h>
 #include <time.h>
 #include <inttypes.h>
-
 #include "driver/i2c.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -13,6 +12,9 @@
 #include "esp_event.h"
 #include "nvs_flash.h"
 #include "sdkconfig.h"
+#include "esp_system.h"
+#include "esp_timer.h"
+#include "esp_mac.h"
 
 // Include class
 #include "mpu6050_registers.h"
@@ -23,6 +25,8 @@
 #include "decisionTree.h"
 #include "timeStamp.h"
 #include "Queda.h"
+#include "fall_id.h"
+#define STATUS_INTERVAL_SEC   (60 * 60)  
 
 // ThingsBoard
 static const char *TB_TOKEN = CONFIG_TB_TOKEN;
@@ -56,6 +60,87 @@ void send_to_thingsboard(const char *json_payload)
     }
 
     esp_http_client_cleanup(client);
+}
+
+void send_fall(
+    const DataStatistics& s,
+    uint32_t fall_id,
+    int queda_flag,
+    const char *device_id
+)
+{
+    // TIMESTAMP REAL (SNTP) 
+    
+    time_t now;
+    time(&now);
+
+    // micros desde boot
+    int64_t us = esp_timer_get_time();
+
+    // timestamp SNTP em ms + fração em ms
+    int64_t ts_ms = ((int64_t)now) * 1000LL + (us % 1000000LL) / 1000LL;
+
+    char json[1024];
+
+    snprintf(json, sizeof(json),
+        "{"
+        "\"ts\":%" PRId64 ","
+        "\"values\":{"
+            "\"device_id\":\"%s\","
+            "\"queda\":%d,"
+            "\"fall_id\":%lu,"
+            "\"count\":%lu,"
+
+            "\"acc_min_x\":%.2f,"
+            "\"acc_min_y\":%.2f,"
+            "\"acc_min_z\":%.2f,"
+            "\"acc_max_x\":%.2f,"
+            "\"acc_max_y\":%.2f,"
+            "\"acc_max_z\":%.2f,"
+            "\"acc_mean_x\":%.2f,"
+            "\"acc_mean_y\":%.2f,"
+            "\"acc_mean_z\":%.2f,"
+
+            "\"gyro_min_x\":%.2f,"
+            "\"gyro_min_y\":%.2f,"
+            "\"gyro_min_z\":%.2f,"
+            "\"gyro_max_x\":%.2f,"
+            "\"gyro_max_y\":%.2f,"
+            "\"gyro_max_z\":%.2f,"
+            "\"gyro_mean_x\":%.2f,"
+            "\"gyro_mean_y\":%.2f,"
+            "\"gyro_mean_z\":%.2f"
+        "}"
+        "}",
+        ts_ms,
+        device_id,
+        queda_flag,
+        (unsigned long)fall_id,
+        (unsigned long)s.getCount(),
+
+        s.getMinAX(), s.getMinAY(), s.getMinAZ(),
+        s.getMaxAX(), s.getMaxAY(), s.getMaxAZ(),
+        s.meanAX(), s.meanAY(), s.meanAZ(),
+
+        s.getMinGX(), s.getMinGY(), s.getMinGZ(),
+        s.getMaxGX(), s.getMaxGY(), s.getMaxGZ(),
+        s.meanGX(), s.meanGY(), s.meanGZ()
+    );
+
+    ESP_LOGI("TB_JSON", "%s", json);
+    send_to_thingsboard(json);
+}
+
+void get_device_id(char *out, size_t len)
+{
+    uint64_t mac;
+    esp_efuse_mac_get_default((uint8_t *)&mac);
+
+    uint16_t high = (uint16_t)(mac >> 32);
+    uint32_t low  = (uint32_t)mac;
+
+    snprintf(out, len, "%04" PRIX16 "%08" PRIX32,
+             high, low);
 }
 
 //I2C
@@ -120,8 +205,20 @@ extern "C" void app_main()
     // SETUP
     esp_log_level_set("*", ESP_LOG_VERBOSE);
 
+    // pegar endereço mac
+    char device_id[20];
+    get_device_id(device_id, sizeof(device_id));
+
+    ESP_LOGI("DEVICE", "Device ID (MAC) = %s", device_id);
+
+
     // Conectar ao WiFi
     wifi_start();
+
+    // pegar id da queda
+    uint32_t fall_id = load_fall_id();
+    ESP_LOGI("NVS", "Último fall_id = %lu", fall_id);
+
 
     // Sincronizar horário
     init_sntp(TAG_TIME);
@@ -163,79 +260,56 @@ extern "C" void app_main()
     decisionTree tree;
 
     ESP_LOGI(TAG_I2C, "Entrando no loop...");
+    int64_t last_ok_send = esp_timer_get_time(); // micros
 
     // LOOP 
-    while (true)
-{
-    if (mpu.update() == ESP_OK)
+   while (true)
     {
-
-        dataSample sample(
-            mpu.getAccX(), mpu.getAccY(), mpu.getAccZ(),
-            mpu.getGyroX(), mpu.getGyroY(), mpu.getGyroZ());
-
-        buffer.push(sample);
-
-        stats.update(
-            sample.getAccX(), sample.getAccY(), sample.getAccZ(),
-            sample.getGyroX(), sample.getGyroY(), sample.getGyroZ());
-
-        tree.checkFall(stats);
-
-        if (tree.getIsFall())
+        if (mpu.update() == ESP_OK)
         {
-            ESP_LOGE("FALL", "QUEDA DETECTADA!");
+            dataSample sample(
+                mpu.getAccX(), mpu.getAccY(), mpu.getAccZ(),
+                mpu.getGyroX(), mpu.getGyroY(), mpu.getGyroZ());
 
-            Queda q(stats);
+            buffer.push(sample);
 
-            const DataStatistics& s = q.getStatistics();
+            stats.update(
+                sample.getAccX(), sample.getAccY(), sample.getAccZ(),
+                sample.getGyroX(), sample.getGyroY(), sample.getGyroZ());
 
-            char json[512];
-    
-            snprintf(json, sizeof(json),
-                "{"
-                "\"queda\":1,"
-                "\"timestamp\":\"%s\","
-                "\"count\":%lu,"
-                "\"acc_min_x\":%.2f,"
-                "\"acc_min_y\":%.2f,"
-                "\"acc_min_z\":%.2f,"
-                "\"acc_max_x\":%.2f,"
-                "\"acc_max_y\":%.2f,"
-                "\"acc_max_z\":%.2f,"
-                "\"acc_mean_x\":%.2f,"
-                "\"acc_mean_y\":%.2f,"
-                "\"acc_mean_z\":%.2f,"
-                "\"gyro_min_x\":%.2f,"
-                "\"gyro_min_y\":%.2f,"
-                "\"gyro_min_z\":%.2f,"
-                "\"gyro_max_x\":%.2f,"
-                "\"gyro_max_y\":%.2f,"
-                "\"gyro_max_z\":%.2f,"
-                "\"gyro_mean_x\":%.2f,"
-                "\"gyro_mean_y\":%.2f,"
-                "\"gyro_mean_z\":%.2f"
-                "}",
-                q.getTimestampString().c_str(),
-                (unsigned long)s.getCount(),
-                s.getMinAX(), s.getMinAY(), s.getMinAZ(),
-                s.getMaxAX(), s.getMaxAY(), s.getMaxAZ(),
-                s.meanAX(), s.meanAY(), s.meanAZ(),
-                s.getMinGX(), s.getMinGY(), s.getMinGZ(),
-                s.getMaxGX(), s.getMaxGY(), s.getMaxGZ(),
-                s.meanGX(), s.meanGY(), s.meanGZ()
-            );
-            
-            ESP_LOGI("TB_JSON", "Payload: %s", json);
+            tree.checkFall(stats);
 
-            send_to_thingsboard(json);
+            if (tree.getIsFall())
+            {
+                ESP_LOGE("FALL", "QUEDA DETECTADA!");
 
-            stats.reset();
-            tree.resetFall();
+                fall_id++;
+                save_fall_id(fall_id);
+
+                send_fall(stats, fall_id, 1, device_id);
+
+                stats.reset();
+                tree.resetFall();
+
+                last_ok_send = esp_timer_get_time();
+            }
+
+            int64_t now_us = esp_timer_get_time();
+
+            if ((now_us - last_ok_send) >= STATUS_INTERVAL_SEC * 1000000LL)
+            {
+                ESP_LOGI("STATUS", "Sem queda - enviando OK");
+
+                send_fall(stats, fall_id, 0, device_id);
+
+                stats.reset();
+                last_ok_send = now_us;
+            }
         }
 
-        }
+        vTaskDelay(10 / portTICK_PERIOD_MS);
     }
+
 
 }
 
