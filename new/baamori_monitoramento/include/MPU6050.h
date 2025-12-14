@@ -2,6 +2,7 @@
 #include <stdint.h>
 #include "I2CDevice.h"
 #include "mpu6050_registers.h"
+#include "esp_log.h"
 
 class MPU6050 : public I2CDevice {
 public:
