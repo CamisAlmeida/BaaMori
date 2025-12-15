@@ -22,7 +22,6 @@
 #include "dataStatistics.h"
 #include "decisionTree.h"
 #include "timeStamp.h"
-#include "Queda.h"
 #include "fall_id.h"
 #include "thingsboard.h"
 #include "wifiConnect.h"
@@ -106,8 +105,9 @@ extern "C" void app_main()
     mpu.begin();
 
     Buffer buffer(4000);
-    DataStatistics stats;
-    decisionTree tree;
+    DataStatistics& stats = DataStatistics::getInstance();
+    decisionTree& tree = decisionTree::getInstance();
+
 
     ESP_LOGI(TAG_I2C, "Entrando no loop...");
     int64_t last_ok_send = esp_timer_get_time(); // micros
