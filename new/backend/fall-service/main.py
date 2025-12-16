@@ -1,9 +1,28 @@
 from fastapi import FastAPI
 from pydantic import BaseModel
 from typing import Dict
+from datetime import datetime
+import requests
+import time
+import os
+from dotenv import load_dotenv
+
+load_dotenv()  
 
 app = FastAPI()
+TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
+CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 
+
+def send_telegram(msg: str):
+    url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
+    requests.post(
+        url,
+        json={"chat_id": CHAT_ID, "text": msg},
+        timeout=10
+    )
+
+# Models
 class FallValues(BaseModel):
     device_id: str
     queda: int
@@ -38,8 +57,22 @@ class FallEvent(BaseModel):
 
 @app.post("/falls")
 def receive_fall(event: FallEvent):
-    print("QUEDA RECEBIDA!!!!")
-    print("Timestamp:", event.ts)
+    print("QUEDA RECEBIDA")
     print("Device:", event.values.device_id)
     print("Fall ID:", event.values.fall_id)
+    print("Queda:", event.values.queda)
+
+    if event.values.queda == 1:
+        ts_ms = event.ts
+        dt = datetime.fromtimestamp(ts_ms / 1000)
+        formatted_time = dt.strftime("%d/%m/%Y %H:%M:%S")
+
+        msg = (
+            "*QUEDA DETECTADA*\n\n"
+            f"Dispositivo: {event.values.device_id}\n"
+            f"Fall ID: {event.values.fall_id}\n"
+            f"Timestamp: {formatted_time}"
+        )
+        send_telegram(msg)
+
     return {"status": "ok"}
