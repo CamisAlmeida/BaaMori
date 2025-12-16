@@ -1,0 +1,4 @@
+{
+  "fall_service": "http://localhost:8001",
+  "status_service": "http://localhost:8002"
+}

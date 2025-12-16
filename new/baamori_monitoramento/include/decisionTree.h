@@ -6,7 +6,7 @@
 class decisionTree
 {
 public:
-    // 
+    
     static decisionTree& getInstance()
     {
         static decisionTree instance;
@@ -32,12 +32,11 @@ public:
     }
 
 private:
-    // 🔒 Construtor privado
     decisionTree() : isFall(false) {}
 
     bool isFall;
 
-    /* ======= ÁRVORES ======= */
+    // Trees
 
     int predict_tree_0(const DataStatistics &s) {
         if (s.getMaxAX() <= 12948.0f) {

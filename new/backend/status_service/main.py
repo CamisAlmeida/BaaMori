@@ -9,5 +9,5 @@ class Status(BaseModel):
 
 @app.post("/status")
 def receive_status(status: Status):
-    print("📡 Status:", status)
+    print(" Status:", status)
     return {"alive": True}

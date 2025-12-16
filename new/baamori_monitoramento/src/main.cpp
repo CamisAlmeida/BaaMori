@@ -13,6 +13,7 @@
 #include "esp_timer.h"
 #include "esp_mac.h"
 #include "esp_log.h"
+#include "sendFall.h"
 
 // Include class
 #include "mpu6050_registers.h"
@@ -26,7 +27,7 @@
 #include "thingsboard.h"
 #include "wifiConnect.h"
 
-#define STATUS_INTERVAL_SEC   (60 * 60)  
+#define STATUS_INTERVAL_SEC   (60 * 1)// envia status de está tudo bem a cada minuto se não houver queda  
 
 void get_device_id(char *out, size_t len)
 {
@@ -137,6 +138,7 @@ extern "C" void app_main()
                 save_fall_id(fall_id);
 
                 send_fall(stats, fall_id, 1, device_id);
+                send_fall_to_gateway(stats, fall_id, 1, device_id);
 
                 stats.reset();
                 tree.resetFall();
@@ -151,6 +153,7 @@ extern "C" void app_main()
                 ESP_LOGI("STATUS", "Sem queda - enviando OK");
 
                 send_fall(stats, fall_id, 0, device_id);
+                send_fall_to_gateway(stats, fall_id, 0, device_id);
 
                 stats.reset();
                 last_ok_send = now_us;

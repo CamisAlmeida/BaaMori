@@ -1,7 +1,13 @@
 menu "Application Configuration"
 
 config TB_TOKEN
-    string "ThingsBoard Access Token"
-    default ""
+    string "ThingsBoard Token"
+
+config WEB_HOST
+    string "Web Server Host"
+
+config WEB_PORT
+    int "Web Server Port"
+    default 8000
 
 endmenu
