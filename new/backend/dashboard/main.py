@@ -1,12 +1,15 @@
 # dashboard_service.py
-from fastapi import FastAPI
+from fastapi import FastAPI, Query
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
+
 import requests
 import os
-from dotenv import load_dotenv
-from fastapi import Query
 import time
+from dotenv import load_dotenv
 
+# -------------------------------------------------
 load_dotenv()
 
 app = FastAPI(title="Dashboard Service")
@@ -19,13 +22,22 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-TB_URL = os.getenv("TB_URL")  
-DEVICE_ID = os.getenv("TB_DEVICE_ID")  
-TB_TOKEN_JWT = os.getenv("TB_TOKEN_JWT")        
+# Servir arquivos estáticos
+app.mount("/static", StaticFiles(directory="static"), name="static")
+
+
+TB_URL = os.getenv("TB_URL")
+DEVICE_ID = os.getenv("TB_DEVICE_ID")
+TB_TOKEN_JWT = os.getenv("TB_TOKEN_JWT")
+
+@app.get("/")
+def dashboard_page():
+    return FileResponse("static/index.html")
+
 
 @app.get("/dashboard")
 def get_dashboard():
-    if DEVICE_ID is None or TB_TOKEN_JWT is None:
+    if not DEVICE_ID or not TB_TOKEN_JWT:
         return {"error": "DEVICE_ID ou TB_TOKEN não configurados"}
 
     keys = (
@@ -52,10 +64,8 @@ def get_dashboard():
 
 
 @app.get("/dashboard/history")
-def get_dashboard_history(
-    limit: int = Query(20, ge=1, le=500)
-):
-    if DEVICE_ID is None or TB_TOKEN_JWT is None:
+def get_dashboard_history(limit: int = Query(20, ge=1, le=500)):
+    if not DEVICE_ID or not TB_TOKEN_JWT:
         return {"error": "DEVICE_ID ou TB_TOKEN não configurados"}
 
     keys = (
@@ -68,8 +78,9 @@ def get_dashboard_history(
         "gyro_mean_x,gyro_mean_y,gyro_mean_z"
     )
 
-    end_ts = int(time.time() * 1000)  
-    start_ts = 0  
+    end_ts = int(time.time() * 1000)
+    start_ts = 0
+
     url = (
         f"{TB_URL}/api/plugins/telemetry/DEVICE/{DEVICE_ID}/values/timeseries"
         f"?keys={keys}"

@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <title>Dashboard – Detecção de Quedas</title>
+
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background: #0f172a;
+            color: #e5e7eb;
+            padding: 20px;
+        }
+
+        h1 {
+            color: #38bdf8;
+        }
+
+        button {
+            margin-bottom: 10px;
+            padding: 8px 12px;
+            cursor: pointer;
+        }
+
+        .table-container {
+            overflow-x: auto;
+        }
+
+        table {
+            border-collapse: collapse;
+            width: 100%;
+            min-width: 1400px;
+        }
+
+        th, td {
+            border: 1px solid #334155;
+            padding: 6px;
+            text-align: center;
+            white-space: nowrap;
+        }
+
+        th {
+            background: #1e293b;
+        }
+
+        .fall {
+            background: #7f1d1d;
+            color: #fecaca;
+            font-weight: bold;
+        }
+
+        .ok {
+            background: #064e3b;
+            color: #bbf7d0;
+        }
+    </style>
+</head>
+
+<body>
+
+<h1>📊 Dashboard – Monitoramento de Quedas</h1>
+
+<button onclick="loadData()">🔄 Atualizar</button>
+
+<div class="table-container">
+<table>
+    <thead>
+        <tr>
+            <th>Timestamp</th>
+            <th>Queda</th>
+
+            <th>Acc X (min / max / mean)</th>
+            <th>Acc Y (min / max / mean)</th>
+            <th>Acc Z (min / max / mean)</th>
+
+            <th>Gyro X (min / max / mean)</th>
+            <th>Gyro Y (min / max / mean)</th>
+            <th>Gyro Z (min / max / mean)</th>
+        </tr>
+    </thead>
+    <tbody id="table-body"></tbody>
+</table>
+</div>
+
+<script>
+const API_URL = "http://localhost:8003/dashboard/history?limit=100";
+
+function formatDate(ts) {
+    return new Date(Number(ts)).toLocaleString();
+}
+
+function loadData() {
+    fetch(API_URL)
+        .then(res => res.json())
+        .then(data => {
+            const body = document.getElementById("table-body");
+            body.innerHTML = "";
+
+            const d = data.dashboard_data;
+            const entries = d.queda || [];
+
+            entries.forEach((item, index) => {
+                const tr = document.createElement("tr");
+                const isFall = item.value == 1;
+
+                tr.className = isFall ? "fall" : "ok";
+
+                tr.innerHTML = `
+                    <td>${formatDate(item.ts)}</td>
+                    <td>${isFall ? "🚨 SIM" : "OK"}</td>
+
+                    <td>
+                        ${d.acc_min_x?.[index]?.value ?? "-"} /
+                        ${d.acc_max_x?.[index]?.value ?? "-"} /
+                        ${d.acc_mean_x?.[index]?.value ?? "-"}
+                    </td>
+
+                    <td>
+                        ${d.acc_min_y?.[index]?.value ?? "-"} /
+                        ${d.acc_max_y?.[index]?.value ?? "-"} /
+                        ${d.acc_mean_y?.[index]?.value ?? "-"}
+                    </td>
+
+                    <td>
+                        ${d.acc_min_z?.[index]?.value ?? "-"} /
+                        ${d.acc_max_z?.[index]?.value ?? "-"} /
+                        ${d.acc_mean_z?.[index]?.value ?? "-"}
+                    </td>
+
+                    <td>
+                        ${d.gyro_min_x?.[index]?.value ?? "-"} /
+                        ${d.gyro_max_x?.[index]?.value ?? "-"} /
+                        ${d.gyro_mean_x?.[index]?.value ?? "-"}
+                    </td>
+
+                    <td>
+                        ${d.gyro_min_y?.[index]?.value ?? "-"} /
+                        ${d.gyro_max_y?.[index]?.value ?? "-"} /
+                        ${d.gyro_mean_y?.[index]?.value ?? "-"}
+                    </td>
+
+                    <td>
+                        ${d.gyro_min_z?.[index]?.value ?? "-"} /
+                        ${d.gyro_max_z?.[index]?.value ?? "-"} /
+                        ${d.gyro_mean_z?.[index]?.value ?? "-"}
+                    </td>
+                `;
+
+                body.appendChild(tr);
+            });
+        })
+        .catch(err => {
+            alert("Erro ao carregar dados");
+            console.error(err);
+        });
+}
+
+// Inicial
+loadData();
+setInterval(loadData, 10000);
+</script>
+
+</body>
+</html>
