@@ -27,7 +27,7 @@
 #include "thingsboard.h"
 #include "wifiConnect.h"
 
-#define STATUS_INTERVAL_SEC   (60 * 1)// envia status de está tudo bem a cada minuto se não houver queda  
+#define STATUS_INTERVAL_SEC   (60 * 10)
 
 void get_device_id(char *out, size_t len)
 {
