@@ -8,7 +8,8 @@ void http_post(const char *url, const char *json)
     esp_http_client_config_t config = {
         .url = url,
         .method = HTTP_METHOD_POST,
-        .timeout_ms = 5000
+        .timeout_ms = 5000,
+        .keep_alive_enable = true
     };
 
     esp_http_client_handle_t client =

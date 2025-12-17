@@ -26,6 +26,10 @@
 #include "fall_id.h"
 #include "thingsboard.h"
 #include "wifiConnect.h"
+#include "fall_observer.h"
+#include "fall_subject.h"
+#include "tb_observer.h"
+#include "gateway_observer.h"
 
 #define STATUS_INTERVAL_SEC   (60 * 10)
 
@@ -109,9 +113,17 @@ extern "C" void app_main()
     DataStatistics& stats = DataStatistics::getInstance();
     decisionTree& tree = decisionTree::getInstance();
 
+    //Criando observers
+    FallSubject fallSubject;
+
+    ThingsBoardObserver tbObserver;
+    GatewayObserver gatewayObserver;
+
+    fallSubject.attach(&tbObserver);
+    fallSubject.attach(&gatewayObserver);
 
     ESP_LOGI(TAG_I2C, "Entrando no loop...");
-    int64_t last_ok_send = esp_timer_get_time(); // micros
+    int64_t last_ok_send = esp_timer_get_time(); 
 
     // LOOP 
    while (true)
@@ -137,12 +149,10 @@ extern "C" void app_main()
                 fall_id++;
                 save_fall_id(fall_id);
 
-                send_fall(stats, fall_id, 1, device_id);
-                send_fall_to_gateway(stats, fall_id, 1, device_id);
+                fallSubject.notify(stats, fall_id, 1, device_id);
 
                 stats.reset();
                 tree.resetFall();
-
                 last_ok_send = esp_timer_get_time();
             }
 
@@ -152,12 +162,12 @@ extern "C" void app_main()
             {
                 ESP_LOGI("STATUS", "Sem queda - enviando OK");
 
-                send_fall(stats, fall_id, 0, device_id);
-                send_fall_to_gateway(stats, fall_id, 0, device_id);
+                fallSubject.notify(stats, fall_id, 0, device_id);
 
                 stats.reset();
                 last_ok_send = now_us;
             }
+
         }
 
         vTaskDelay(10 / portTICK_PERIOD_MS);

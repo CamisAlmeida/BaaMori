@@ -10,7 +10,7 @@ class FallPayload(BaseModel):
     values: Dict[str, Any]
 
 
-FALL_SERVICE_URL = "http://localhost:8001/falls"  
+FALL_SERVICE_URL = "http://127.0.0.1:8001/falls"
 
 @app.post("/falls")
 async def receive_fall(payload: FallPayload):
